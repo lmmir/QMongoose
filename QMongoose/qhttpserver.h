@@ -22,6 +22,8 @@ private:
   void mgAcceptEvent(void *connection, int ev, void *ev_data);
   void mgPollEvent(void *connection, int ev, void *ev_data);
 
+  void mgHttpMsg(const QString &msg);
+
 private:
   struct Private;
   QScopedPointer<Private> d;

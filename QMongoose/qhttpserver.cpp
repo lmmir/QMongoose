@@ -75,21 +75,19 @@ void QHttpServer::mg_event_handler(void *connection, int ev, void *ev_data) {
     if (c->fn_data != 0) {
       delete (UserData *)c->fn_data;
     }
-    qDebug() << ++closeNumber;
+
   } else if (ev == MG_EV_HTTP_MSG) {
+
+    if (c->is_closing == 1) {
+      return;
+    }
 
     struct mg_http_message *hm = (struct mg_http_message *)ev_data;
     QString message = QString::fromLocal8Bit(hm->message.buf, hm->message.len);
-    unsigned long conn_id = c->id;
-    mg_mgr *mgr = c->mgr;
-
-    if (d->threadPool.activeThreadCount() < d->threadPool.maxThreadCount()) {
-      d->threadPool.start(QRunnableIml::create([=]() {
-        mg_wakeup(mgr, conn_id, "hi!", 3); // Respond to parent
-      }));
-    } else {
-      c->is_closing = 1;
-    }
+    d->threadPool.start(QRunnableIml::create([=]() {
+      this->mgHttpMsg(message);
+      mg_wakeup(c->mgr, c->id, "hi!", 3); // Respond to parent
+    }));
 
   } else if (ev == MG_EV_WAKEUP) {
     struct mg_str *data = (struct mg_str *)ev_data;
@@ -119,6 +117,11 @@ void QHttpServer::mgOpenEvent(void *connection, int ev, void *ev_data) {
 
 void QHttpServer::mgAcceptEvent(void *connection, int ev, void *ev_data) {
   mg_connection *c = static_cast<mg_connection *>(connection);
+  if (d->threadPool.activeThreadCount() >= d->threadPool.maxThreadCount()) {
+    c->is_closing = 1;
+    return;
+  }
+
   if (c->fn_data == 0) {
     c->fn_data = new UserData;
     UserData *userData = static_cast<UserData *>(c->fn_data);
@@ -134,4 +137,9 @@ void QHttpServer::mgPollEvent(void *connection, int ev, void *ev_data) {
       c->is_closing = 1;
     }
   }
+}
+
+void QHttpServer::mgHttpMsg(const QString &msg) {
+  ;
+  QThread::msleep(10);
 }
