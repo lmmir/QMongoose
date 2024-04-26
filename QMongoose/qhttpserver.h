@@ -21,7 +21,7 @@ private:
   void mgOpenEvent(void *connection, int ev, void *ev_data);
   void mgAcceptEvent(void *connection, int ev, void *ev_data);
   void mgPollEvent(void *connection, int ev, void *ev_data);
-
+  void mgErrorEvent(void *connection, int ev, void *ev_data);
   void mgHttpMsg(const QString &msg);
 
 private:

@@ -5,6 +5,7 @@
 #include <QElapsedTimer>
 #include <QThreadPool>
 #include <functional>
+#include <set>
 class QRunnableIml : public QRunnable {
 public:
   static QRunnable *create(std::function<void()> functionToRun) {
@@ -25,15 +26,17 @@ public:
 typedef struct {
   QHttpServer *instance;
   QDateTime openTime;
+
 } UserData;
 
 struct QHttpServer::Private {
   QThreadPool threadPool;
   struct mg_mgr mgr;
+  std::set<mg_connection *> set_mg_connection;
 };
 
 QHttpServer::QHttpServer() : d(new Private) {
-  d->threadPool.setMaxThreadCount(5);
+  d->threadPool.setMaxThreadCount(100);
   mg_mgr_init(&d->mgr);
 }
 
@@ -63,6 +66,13 @@ void QHttpServer::mg_event_handler(void *connection, int ev, void *ev_data) {
 
     this->mgOpenEvent(connection, ev, ev_data);
 
+  } else if (ev == MG_EV_ERROR) {
+
+    this->mgErrorEvent(connection, ev, ev_data);
+    if (d->set_mg_connection.find(c) != d->set_mg_connection.end()) {
+      d->set_mg_connection.erase(c);
+    }
+
   } else if (ev == MG_EV_ACCEPT) {
 
     this->mgAcceptEvent(connection, ev, ev_data);
@@ -75,6 +85,9 @@ void QHttpServer::mg_event_handler(void *connection, int ev, void *ev_data) {
     if (c->fn_data != 0) {
       delete (UserData *)c->fn_data;
     }
+    if (d->set_mg_connection.find(c) != d->set_mg_connection.end()) {
+      d->set_mg_connection.erase(c);
+    }
 
   } else if (ev == MG_EV_HTTP_MSG) {
 
@@ -84,9 +97,12 @@ void QHttpServer::mg_event_handler(void *connection, int ev, void *ev_data) {
 
     struct mg_http_message *hm = (struct mg_http_message *)ev_data;
     QString message = QString::fromLocal8Bit(hm->message.buf, hm->message.len);
-    d->threadPool.start(QRunnableIml::create([=]() {
+    mg_mgr *mgr = c->mgr;
+    unsigned long id = c->id;
+
+    d->threadPool.start(QRunnableIml::create([this, mgr, id, message]() {
       this->mgHttpMsg(message);
-      mg_wakeup(c->mgr, c->id, "hi!", 3); // Respond to parent
+      mg_wakeup(mgr, id, "hi!", 3); // Respond to parent
     }));
 
   } else if (ev == MG_EV_WAKEUP) {
@@ -104,23 +120,26 @@ void QHttpServer::mg_event_handler(void *connection, int ev, void *ev_data) {
 }
 
 void QHttpServer::run() {
-
+  QElapsedTimer et;
+  et.start();
   while (!this->isInterruptionRequested()) {
     mg_mgr_poll(&d->mgr, 50);
+
+    if (et.elapsed() > 1000) {
+      qDebug() << d->set_mg_connection.size();
+      et.restart();
+    }
   }
   mg_mgr_free(&d->mgr);
 }
 
 void QHttpServer::mgOpenEvent(void *connection, int ev, void *ev_data) {
   mg_connection *c = static_cast<mg_connection *>(connection);
+  d->set_mg_connection.insert(c);
 }
 
 void QHttpServer::mgAcceptEvent(void *connection, int ev, void *ev_data) {
   mg_connection *c = static_cast<mg_connection *>(connection);
-  if (d->threadPool.activeThreadCount() >= d->threadPool.maxThreadCount()) {
-    c->is_closing = 1;
-    return;
-  }
 
   if (c->fn_data == 0) {
     c->fn_data = new UserData;
@@ -133,10 +152,15 @@ void QHttpServer::mgPollEvent(void *connection, int ev, void *ev_data) {
   mg_connection *c = static_cast<mg_connection *>(connection);
   UserData *userData = static_cast<UserData *>(c->fn_data);
   if (userData != 0) {
-    if (qAbs(QDateTime::currentDateTime().secsTo(userData->openTime)) > 3) {
+    if (qAbs(QDateTime::currentDateTime().secsTo(userData->openTime)) > 60000) {
       c->is_closing = 1;
     }
   }
+}
+
+void QHttpServer::mgErrorEvent(void *connection, int ev, void *ev_data) {
+  ;
+  qDebug() << __FUNCTION__;
 }
 
 void QHttpServer::mgHttpMsg(const QString &msg) {
