@@ -152,7 +152,9 @@ void QHttpServer::mgPollEvent(void *connection, int ev, void *ev_data) {
   mg_connection *c = static_cast<mg_connection *>(connection);
   UserData *userData = static_cast<UserData *>(c->fn_data);
   if (userData != 0) {
-    if (qAbs(QDateTime::currentDateTime().secsTo(userData->openTime)) > 60000) {
+    if (qAbs(QDateTime::currentDateTime().secsTo(userData->openTime)) > 60) {
+      qDebug() << "timeout:"
+               << userData->openTime.secsTo(QDateTime::currentDateTime());
       c->is_closing = 1;
     }
   }
